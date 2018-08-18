@@ -6,11 +6,11 @@
   :table "t_hoge"
   :pk ["ほげID" "hoge_id" :str {:auto-gen? true}]
   :props
-  [["氏名" "hoge_name" :str]
-   ["入門日" "hoge_date" :str {:datetime :date}]
+  [["氏名" "hoge_name" :str {:required? true}]
+   ["入門日" "hoge_date" :str {:required? true :datetime :date}]
    ["受講回数" "hoge_count" :num]
-   ["種別" "category_id" :str {:foreign :hoge_category}]
-   ["ジャンル" "genre_cd" :str {:code-master "genre"}]
+   ["種別" "category_id" :str {:required? true :foreign :hoge_category}]
+   ["ジャンル" "genre_cd" :str {:code-master "genre" :empty "NULL"}]
    ]}
 
  :bs-id "hg00"

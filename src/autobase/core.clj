@@ -17,3 +17,8 @@
       (System/exit -1))
     (let [ent (load-edn ent-file)]
       (gen-code ent))))
+
+(comment
+  (-> "hoge.edn"
+      load-edn
+      gen-code))
