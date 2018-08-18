@@ -9,8 +9,8 @@
   [["氏名" "hoge_name" :str {:required? true}]
    ["入門日" "hoge_date" :str {:required? true :datetime :date}]
    ["受講回数" "hoge_count" :num]
-   ["種別" "category_id" :str {:required? true :foreign :hoge_category}]
-   ["ジャンル" "genre_cd" :str {:code-master "genre" :empty "NULL"}]
+   ["種別" "category_id" :str {:foreign :hoge_category :edit :select}]
+   ["ジャンル" "genre_cd" :str {:code-master "genre" :empty "NULL" :edit :radio}]
    ]}
 
  :bs-id "hg00"

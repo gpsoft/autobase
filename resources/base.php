@@ -36,4 +36,13 @@ $aryMap3 = Array(
 (@/properties@)
 );
 
+$aryMap4 = Array(
+(@#properties@)
+	(@{col-name-to-param-name}@),
+(@/properties@)
+);
 
+// for U page.
+(@#properties@)
+(@{edit-section}@),
+(@/properties@)
