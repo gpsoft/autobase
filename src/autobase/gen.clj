@@ -6,6 +6,12 @@
 (require 'clojure.pprint) ;; need this?
 (defn- tap [v] (clojure.pprint/pprint v) v)
 
+(def ^:private templs
+  {"partial.php" :php-common
+   "base.php" :php-common
+   "s00.php" :php
+   "s00.js" :js})
+
 (def ^:private type-map
   {:str {:prefix "str" :empty-val "''"}
    :num {:prefix "int" :empty-val 0}
@@ -177,6 +183,7 @@
         detail? (gin [:detail?])
         t (gin [:entity :table])]
     {:proj-name proj-name
+     :bs-id bs-id
      :ent-name (gin [:entity :name])
      :table-name (table-name proj-name t)
      :this-year (this-year)
@@ -185,13 +192,31 @@
      :detail? detail?
      }))
 
+(defn- gen-one
+  [templ d out]
+  (let [code (p/render-resource templ d)]
+    (spit out code)))
+
+(defn- out-dir-path
+  [t bs-id]
+  (condp = t
+    :php-common bs-id
+    :php (str bs-id)
+    :js (str "js/" bs-id)))
+
+(defn- out-file-path
+  [templ t bs-id dir]
+  (str dir "/" (if (= t :php-common) "" bs-id) templ))
+
 (defn gen-code
   [ent]
   (let [d (data-from-ent ent)
-        f "base.php"
-        c (p/render-resource f d)
-        o f]
-    (spit o c)))
+        bs-id (:bs-id d)]
+    (dorun (for [[templ t] templs
+                 :let [dir (out-dir-path t bs-id)
+                       _ (.mkdirs (java.io.File. dir))
+                       out (out-file-path templ t bs-id dir)]]
+             (gen-one templ d out)))))
 
 (comment
   (p/render "Hello, {{name}}!" {:name "Felix"})
