@@ -44,5 +44,7 @@ $aryMap4 = Array(
 
 // for U page.
 (@#properties@)
-(@{edit-section}@),
+(@#edit-section@)
+(@.@)
+(@/edit-section@)
 (@/properties@)

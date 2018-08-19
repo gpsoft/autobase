@@ -1,6 +1,7 @@
 (ns autobase.gen
   (:require [clostache.parser :as p]
-            [camel-snake-kebab.core :refer [->PascalCase]]))
+            [camel-snake-kebab.core :refer [->PascalCase]]
+            [inflections.core :refer [plural]]))
 
 ;; for debugging
 (require 'clojure.pprint) ;; need this?
@@ -22,11 +23,12 @@
    :class {:prefix "cls" :empty-val "null"}
    :object {:prefix "obj" :empty-val "null"}})
 
+(declare text-renderer select-renderer radios-renderer)
 (def ^:private edit-map
-  {:text {:prefix "txt"}
+  {:text {:prefix "txt" :renderer text-renderer}
    :textarea {:prefix "txa"}
-   :select {:prefix "sel"}
-   :radio {:prefix "rad"}
+   :select {:prefix "sel" :renderer select-renderer}
+   :radio {:prefix "rad" :renderer radios-renderer}
    :check {:prefix "chk"}})
 
 (defn- enc-str
@@ -38,6 +40,7 @@
 (defn- wrapsq [s] (str \' s \'))
 (defn- wrapdq [s] (str \" s \"))
 (defn- wrappar [s] (str \( s \)))
+(defn- variable [s] (str "$" s))
 
 (defn- edit-type
   [opts] (get opts :edit :text))
@@ -52,22 +55,44 @@
   (let [k (edit-type opts)]
     (get-in edit-map [k :prefix])))
 
-(defn- pascal-case
+(defn- edit-renderer
+  [opts]
+  (let [k (edit-type opts)]
+    (get-in edit-map [k :renderer])))
+
+(defn- options-array
+  [opts]
+  (if-let [s (:foreign opts)]
+    (array-name s)
+    (when-let [s (:code-master opts)]
+      (array-name s))))
+
+(defn- camel-case
   [cname prefix]
-  (let [n (->PascalCase cname)]
-    (str prefix n)))
+  (when cname
+    (let [n (->PascalCase cname)]
+      (str prefix n))))
 
 (defn- var-name
   [cname t]
-  (pascal-case cname (hungarian-prefix t)))
+  (camel-case cname (hungarian-prefix t)))
 
 (defn- hid-name
   [cname]
-  (pascal-case cname "hid"))
+  (camel-case cname "hid"))
 
 (defn- param-name
-  [cname opts]
-  (pascal-case cname (edit-prefix opts)))
+  ([cname opts] (param-name cname opts false))
+  ([cname opts search?]
+   (let [prefix (edit-prefix opts)
+         prefix (str prefix (if search? "Search" ""))]
+     (camel-case cname prefix))))
+
+(defn- array-name
+  [n]
+  (-> n
+      plural
+      (camel-case "ary")))
 
 (defn- empty-val
   [t opts]
@@ -79,8 +104,8 @@
         (get-in type-map [k :empty-val])))))
 
 (defn- table-name
-  [p t]
-  (str p "_" t))
+  [p tn]
+  (str p "_" tn))
 
 (defn- this-year []
   (.getYear (java.time.LocalDate/now)))
@@ -122,9 +147,24 @@
          " => "
          (upsert-expr cname t opts))))
 
+(defn- inp-class-invalid
+  [[t opts]]
+  (let [et (edit-type opts)
+        datetime? (some? (:datetime opts))]
+    (when (and (= et :text)
+             (not datetime?))
+      "invalid")))
+(defn- inp-class-date
+  [[t opts]]
+  (let [date? (= (:datetime opts) :date)]
+    (when date?
+      "date")))
 (defn- inp-classes
-  [opts]
-  (enc-str ["abc" "good"]))
+  [t opts]
+  (let [fs (juxt inp-class-invalid
+                 inp-class-date)
+        classes (fs [t opts])]
+    (enc-str classes)))
 
 (defn- elm-expr
   [tag m]
@@ -139,17 +179,38 @@
   [func params]
   (str func (wrappar (enc-str params :sepa ", "))))
 
-(defn- edit-expr
-  [cname opts]
-  (let [pname (param-name cname opts)
-        classes (inp-classes opts)]
+(defn- text-renderer
+  [pname classes opts]
+  (fcall-expr
+    "outText"
+    [(wrapsq pname)
+     (wrapsq classes)]))
+(defn- select-renderer
+  [pname classes opts]
+  (let [a (options-array opts)]
     (fcall-expr
-      "fuga"
+      "outSelect"
       [(wrapsq pname)
+       (variable a)
        (wrapsq classes)])))
+(defn- radios-renderer
+  [pname classes opts]
+  (let [a (options-array opts)]
+    (fcall-expr
+      "outRadios"
+      [(wrapsq pname)
+       (variable a)
+       (wrapsq classes)])))
+(defn- edit-expr
+  [cname t opts]
+  (let [pname (param-name cname opts)
+        classes (inp-classes t opts)
+        renderer (edit-renderer opts)]
+    (when renderer
+      (renderer pname classes opts))))
 
 (defn- edit-section
-  [prop]
+  [prop _]
   (let [[pname cname t opts] prop
         required? (:required? opts)]
     (str
@@ -158,8 +219,8 @@
       (if required? ", true" "")
       "); ?>\n"
       "<td><? "
-      (edit-expr cname opts)
-      " ?></td>")))
+      (edit-expr cname t opts)
+      " ?></td>\n")))
 
 (defn- disp-ids
   [bs-id detail?]
@@ -173,7 +234,15 @@
      :col-name-to-var-name (col-name-to-var-name prop)
      :col-name-to-param-name (col-name-to-param-name prop)
      :hid-name-to-upsert (hid-name-to-upsert prop)
-     :edit-section (edit-section prop)}))
+     ;; ↓ラムダを使う。
+     ;;   リテラルを使うと、なぜか $ が \$ と出力されてしまう。
+     ;;   clostacheのバグっぽい。
+     ;;   また、このときテンプレート側は、implicit iteratorsを使う。
+     ;;     {{#edit-section}}
+     ;;     {{.}}
+     ;;     {{/edit-section}}
+     ;;   みたいな感じ。
+     :edit-section #(edit-section prop %)}))
 
 (defn- data-from-ent
   [ent]
@@ -181,11 +250,11 @@
         proj-name (gin [:project])
         bs-id (gin [:bs-id])
         detail? (gin [:detail?])
-        t (gin [:entity :table])]
+        tn (gin [:entity :table])]
     {:proj-name proj-name
      :bs-id bs-id
      :ent-name (gin [:entity :name])
-     :table-name (table-name proj-name t)
+     :table-name (table-name proj-name tn)
      :this-year (this-year)
      :disp-ids (disp-ids bs-id detail?)
      :properties (properties (gin [:entity :props]))
@@ -198,24 +267,24 @@
     (spit out code)))
 
 (defn- out-dir-path
-  [t bs-id]
-  (condp = t
+  [ft bs-id]
+  (condp = ft
     :php-common bs-id
     :php (str bs-id)
     :js (str "js/" bs-id)))
 
 (defn- out-file-path
-  [templ t bs-id dir]
-  (str dir "/" (if (= t :php-common) "" bs-id) templ))
+  [templ ft bs-id dir]
+  (str dir "/" (if (= ft :php-common) "" bs-id) templ))
 
 (defn gen-code
   [ent]
   (let [d (data-from-ent ent)
         bs-id (:bs-id d)]
-    (dorun (for [[templ t] templs
-                 :let [dir (out-dir-path t bs-id)
+    (dorun (for [[templ ft] templs
+                 :let [dir (out-dir-path ft bs-id)
                        _ (.mkdirs (java.io.File. dir))
-                       out (out-file-path templ t bs-id dir)]]
+                       out (out-file-path templ ft bs-id dir)]]
              (gen-one templ d out)))))
 
 (comment
