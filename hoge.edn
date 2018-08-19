@@ -7,10 +7,10 @@
   :pk ["ほげID" "hoge_id" :str {:auto-gen? true}]
   :props
   [["氏名" "hoge_name" :str {:required? true}]
-   ["入門日" "hoge_date" :str {:required? true :datetime :date}]
+   ["入門日" "hoge_date" :str {:required? true :datetime :date :search :date-range}]
    ["受講回数" "hoge_count" :num]
-   ["種別" "category_id" :str {:foreign :hoge_category :edit :select}]
-   ["ジャンル" "genre_cd" :str {:code-master "genre" :empty "NULL" :edit :radio}]
+   ["種別" "category_id" :str {:foreign :hoge_category :edit :select :search :select}]
+   ["ジャンル" "genre_cd" :str {:code-master "genre" :empty "NULL" :edit :radio :search :check}]
    ]}
 
  :bs-id "hg00"

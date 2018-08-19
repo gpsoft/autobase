@@ -48,3 +48,10 @@ $aryMap4 = Array(
 (@.@)
 (@/edit-section@)
 (@/properties@)
+
+// for S page.
+(@#properties@)
+(@#search-section@)
+(@.@)
+(@/search-section@)
+(@/properties@)

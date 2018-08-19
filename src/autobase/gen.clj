@@ -23,13 +23,23 @@
    :class {:prefix "cls" :empty-val "null"}
    :object {:prefix "obj" :empty-val "null"}})
 
-(declare text-renderer select-renderer radios-renderer)
+(declare text-rdr textarea-rdr select-rdr radios-rdr checks-rdr
+         s-text-rdr s-select-rdr s-radios-rdr s-checks-rdr s-date-range-rdr)
 (def ^:private edit-map
-  {:text {:prefix "txt" :renderer text-renderer}
-   :textarea {:prefix "txa"}
-   :select {:prefix "sel" :renderer select-renderer}
-   :radio {:prefix "rad" :renderer radios-renderer}
-   :check {:prefix "chk"}})
+  {:text {:prefix "txt" :renderer #'text-rdr}
+   :textarea {:prefix "txa" :renderer #'textarea-rdr}
+   :select {:prefix "sel" :renderer #'select-rdr}
+   :radio {:prefix "rad" :renderer #'radios-rdr}
+   :check {:prefix "chk" :renderer #'checks-rdr}})
+(def ^:private search-map
+  (merge-with
+    merge edit-map
+    {:text {:renderer #'s-text-rdr}
+     :textarea {:renderer #'s-text-rdr}
+     :select {:renderer #'s-select-rdr}
+     :radio {:renderer #'s-radios-rdr}
+     :check {:renderer #'s-checks-rdr}
+     :date-range {:prefix "txt" :renderer #'s-date-range-rdr}}))
 
 (defn- enc-str
   [items
@@ -44,28 +54,31 @@
 
 (defn- edit-type
   [opts] (get opts :edit :text))
+(defn- search-type
+  [opts] (get opts :search :text))
 
 (defn- hungarian-prefix
   [t]
   (let [k (keyword t)]
     (get-in type-map [k :prefix])))
 
-(defn- edit-prefix
-  [opts]
-  (let [k (edit-type opts)]
-    (get-in edit-map [k :prefix])))
+(defn- type-fn-and-map
+  [search?]
+  (if search?
+    [search-type search-map]
+    [edit-type edit-map]))
 
-(defn- edit-renderer
-  [opts]
-  (let [k (edit-type opts)]
-    (get-in edit-map [k :renderer])))
+(defn- param-prefix
+  [opts search?]
+  (let [[f m] (type-fn-and-map search?)
+        k (f opts)]
+    (get-in m [k :prefix])))
 
-(defn- options-array
-  [opts]
-  (if-let [s (:foreign opts)]
-    (array-name s)
-    (when-let [s (:code-master opts)]
-      (array-name s))))
+(defn- ctl-renderer
+  [opts search?]
+  (let [[f m] (type-fn-and-map search?)
+        k (f opts)]
+    (get-in m [k :renderer])))
 
 (defn- camel-case
   [cname prefix]
@@ -84,7 +97,7 @@
 (defn- param-name
   ([cname opts] (param-name cname opts false))
   ([cname opts search?]
-   (let [prefix (edit-prefix opts)
+   (let [prefix (param-prefix opts search?)
          prefix (str prefix (if search? "Search" ""))]
      (camel-case cname prefix))))
 
@@ -93,6 +106,13 @@
   (-> n
       plural
       (camel-case "ary")))
+
+(defn- options-array
+  [opts]
+  (if-let [s (:foreign opts)]
+    (array-name s)
+    (when-let [s (:code-master opts)]
+      (array-name s))))
 
 (defn- empty-val
   [t opts]
@@ -147,22 +167,22 @@
          " => "
          (upsert-expr cname t opts))))
 
-(defn- inp-class-invalid
+(defn- ctl-class-invalid
   [[t opts]]
   (let [et (edit-type opts)
         datetime? (some? (:datetime opts))]
     (when (and (= et :text)
              (not datetime?))
       "invalid")))
-(defn- inp-class-date
+(defn- ctl-class-date
   [[t opts]]
   (let [date? (= (:datetime opts) :date)]
     (when date?
       "date")))
-(defn- inp-classes
+(defn- ctl-classes
   [t opts]
-  (let [fs (juxt inp-class-invalid
-                 inp-class-date)
+  (let [fs (juxt ctl-class-invalid
+                 ctl-class-date)
         classes (fs [t opts])]
     (enc-str classes)))
 
@@ -179,35 +199,65 @@
   [func params]
   (str func (wrappar (enc-str params :sepa ", "))))
 
-(defn- text-renderer
-  [pname classes opts]
+(defn- text-rdr
+  [pname para classes opts]
   (fcall-expr
     "outText"
-    [(wrapsq pname)
+    [(wrapsq para)
      (wrapsq classes)]))
-(defn- select-renderer
-  [pname classes opts]
+(defn- select-rdr
+  [pname para classes opts]
   (let [a (options-array opts)]
     (fcall-expr
       "outSelect"
-      [(wrapsq pname)
+      [(wrapsq para)
        (variable a)
        (wrapsq classes)])))
-(defn- radios-renderer
-  [pname classes opts]
+(defn- radios-rdr
+  [pname para classes opts]
   (let [a (options-array opts)]
     (fcall-expr
       "outRadios"
-      [(wrapsq pname)
+      [(wrapsq para)
        (variable a)
        (wrapsq classes)])))
-(defn- edit-expr
-  [cname t opts]
-  (let [pname (param-name cname opts)
-        classes (inp-classes t opts)
-        renderer (edit-renderer opts)]
-    (when renderer
-      (renderer pname classes opts))))
+(defn- s-text-rdr
+  [pname para classes opts]
+  (fcall-expr
+    "outSearchText"
+    [(wrapsq pname)
+     (wrapsq para)
+     (wrapsq classes)]))
+(defn- s-select-rdr
+  [pname para classes opts]
+  (let [a (options-array opts)]
+    (fcall-expr
+      "outSearchSelect"
+      [(wrapsq pname)
+       (wrapsq para)
+       (variable a)
+       (wrapsq classes)])))
+(defn- s-checks-rdr
+  [pname para classes opts]
+  (let [a (options-array opts)]
+    (fcall-expr
+      "outSearchChecks"
+      [(wrapsq pname)
+       (wrapsq para)
+       (variable a)
+       (wrapsq classes)])))
+(defn- s-date-range-rdr
+  [pname para classes opts]
+  "//TODO: search for date range")
+
+(defn- ctl-expr
+  [pname cname t opts e-or-s]
+  (let [search? (= e-or-s :search)
+        para (param-name cname opts search?)
+        classes (ctl-classes t opts)
+        rdr (ctl-renderer opts search?)]
+    (when rdr
+      (rdr pname para classes opts))))
 
 (defn- edit-section
   [prop _]
@@ -219,8 +269,13 @@
       (if required? ", true" "")
       "); ?>\n"
       "<td><? "
-      (edit-expr cname t opts)
-      " ?></td>\n")))
+      (ctl-expr pname cname t opts :edit)
+      "; ?></td>\n")))
+
+(defn- search-section
+  [prop _]
+  (let [[pname cname t opts] prop]
+    (str (ctl-expr pname cname t opts :search) ";" \newline)))
 
 (defn- disp-ids
   [bs-id detail?]
@@ -242,7 +297,8 @@
      ;;     {{.}}
      ;;     {{/edit-section}}
      ;;   みたいな感じ。
-     :edit-section #(edit-section prop %)}))
+     :edit-section #(edit-section prop %)
+     :search-section #(search-section prop %)}))
 
 (defn- data-from-ent
   [ent]
